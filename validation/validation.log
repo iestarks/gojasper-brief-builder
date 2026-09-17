@@ -1,0 +1,67 @@
+[INFO] 2026-09-16 21:31:50 - Starting validation in: /Users/wolfpacker/development/gojasper-brief-builder
+[INFO] 2026-09-16 21:31:50 - STEP 1: Validating file structure...
+[SUCCESS] 2026-09-16 21:31:50 - File exists: brief-builder/config/agent.yaml (/Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml)
+[SUCCESS] 2026-09-16 21:31:50 - File exists: infra/brief-builder.tf (/Users/wolfpacker/development/gojasper-brief-builder/infra/brief-builder.tf)
+[SUCCESS] 2026-09-16 21:31:50 - File exists: .github/workflows/ci.yml (/Users/wolfpacker/development/gojasper-brief-builder/.github/workflows/ci.yml)
+[INFO] 2026-09-16 21:31:50 - STEP 2: Validating YAML syntax...
+[SUCCESS] 2026-09-16 21:31:50 - YAML syntax valid: agent.yaml
+[SUCCESS] 2026-09-16 21:31:50 - YAML syntax valid: ci.yml
+[INFO] 2026-09-16 21:31:50 - STEP 3: Scanning for security risks in vulnerable configurations...
+[INFO] 2026-09-16 21:31:50 - Scanning agent.yaml (VULNERABLE) for security risks...
+[WARNING] 2026-09-16 21:31:50 - SECURITY RISK in agent.yaml (VULNERABLE): Tool has 'confirmation: never' (requires approval)
+[WARNING] 2026-09-16 21:31:50 - SECURITY RISK in agent.yaml (VULNERABLE): Global memory scope (data leakage between users) - should be per-user
+[WARNING] 2026-09-16 21:31:50 - SECURITY RISK in agent.yaml (VULNERABLE): Tool calls not logged (audit trail missing)
+[INFO] 2026-09-16 21:31:50 - Scanning brief-builder.tf (VULNERABLE) for security risks...
+[ERROR] 2026-09-16 21:31:50 - SECURITY RISK in brief-builder.tf (VULNERABLE): Plaintext API key detected
+[ERROR] 2026-09-16 21:31:50 - SECURITY RISK in brief-builder.tf (VULNERABLE): Public access (allUsers) detected - should restrict to authenticated users
+[ERROR] 2026-09-16 21:31:50 - SECURITY RISK in brief-builder.tf (VULNERABLE): Editor role too permissive - should use least-privilege custom role
+[INFO] 2026-09-16 21:31:51 - Scanning ci.yml (VULNERABLE) for security risks...
+[INFO] 2026-09-16 21:31:51 - STEP 4: Checking Conftest policy engine...
+[INFO] 2026-09-16 21:31:51 - Checking Conftest policy availability...
+[SUCCESS] 2026-09-16 21:31:51 - Conftest available: Conftest: dev
+[SUCCESS] 2026-09-16 21:31:51 - Conftest policy found: brief-builder-security.rego
+[INFO] 2026-09-16 21:31:51 - STEP 5: Validating secure configuration versions...
+[INFO] 2026-09-16 21:31:51 - Checking secure versions of configuration files...
+[SUCCESS] 2026-09-16 21:31:51 - File exists: agent.yaml.secure (/Users/wolfpacker/development/gojasper-brief-builder/agent.yaml.secure)
+[SUCCESS] 2026-09-16 21:31:51 - Security fix verified in agent.yaml.secure: per-user memory scope enabled
+[SUCCESS] 2026-09-16 21:31:51 - File exists: brief-builder.tf.secure (/Users/wolfpacker/development/gojasper-brief-builder/brief-builder.tf.secure)
+[SUCCESS] 2026-09-16 21:31:51 - Security fix verified in agent.yaml.secure: per-user memory scope enabled
+[INFO] 2026-09-16 21:31:51 - STEP 6: Validating compliance documentation...
+[INFO] 2026-09-16 21:31:51 - Checking compliance documentation...
+[SUCCESS] 2026-09-16 21:31:51 - File exists: SECURITY_ASSESSMENT.md (/Users/wolfpacker/development/gojasper-brief-builder/SECURITY_ASSESSMENT.md)
+[SUCCESS] 2026-09-16 21:31:51 - Compliance doc includes: Prioritized Risk Assessment
+[SUCCESS] 2026-09-16 21:31:51 - Compliance doc includes: SOC 2 / ISO 42001 mapping
+[INFO] 2026-09-16 21:31:51 - STEP 7: Running Conftest policy validation...
+[INFO] 2026-09-16 21:31:51 - Testing VULNERABLE configurations (should detect issues)...
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/infra/brief-builder.tf - main - CRITICAL: Service account key not using Workload Identity. Migrate to Workload Identity.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/infra/brief-builder.tf - main - MEDIUM: Data Access audit logs not configured. Enable for compliance.
+[33mWARN[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - MEDIUM: Customer-submitted text without sanitization. Add input filtering.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - CRITICAL: System prompt contains confirmation bypass clause. This enables prompt injection attacks.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - HIGH: Global memory scope with no TTL. Enable per-user scope + 24h TTL.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - HIGH: fetch_url tool has confirmation:never. Add URL allowlist to prevent SSRF.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - HIGH: run_sql tool has confirmation:never. Add confirmation or enforce query allowlist.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - HIGH: send_email tool has confirmation:never. Restrict 'to' field to allowlist.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - MEDIUM: Data Access audit logs not configured. Enable for compliance.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - MEDIUM: Logging identity is not user_id. SOC 2 requires user attribution.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - MEDIUM: Logging identity is service account, not user. Log user identity for SOC 2.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - MEDIUM: No redaction of sensitive fields in logs. Enable redaction for PII.
+[31mFAIL[0m - /Users/wolfpacker/development/gojasper-brief-builder/brief-builder/config/agent.yaml - main - MEDIUM: Tool calls are not logged. Required for SOC 2 audit trail.
+
+[31m34 tests, 21 passed, 1 warning, 12 failures, 0 exceptions[0m
+[SUCCESS] 2026-09-16 21:31:51 - Conftest correctly identified issues in vulnerable configurations
+[INFO] 2026-09-16 21:31:51 - Testing SECURE configurations (should pass)...
+[31mFAIL[0m - /tmp/agent-secure.yaml - main - CRITICAL: System prompt contains confirmation bypass clause. This enables prompt injection attacks.
+[31mFAIL[0m - /tmp/agent-secure.yaml - main - MEDIUM: Data Access audit logs not configured. Enable for compliance.
+[31mFAIL[0m - /tmp/agent-secure.yaml - main - MEDIUM: Tool calls are not logged. Required for SOC 2 audit trail.
+
+[31m34 tests, 31 passed, 0 warnings, 3 failures, 0 exceptions[0m
+[WARNING] 2026-09-16 21:31:51 - Conftest reported issues on secure configurations (may be expected if fixes not complete)
+════════════════════════════════════════════════════════════════
+VALIDATION SUMMARY
+════════════════════════════════════════════════════════════════
+✓ Successes:  15
+⚠ Warnings:   4
+✗ Errors:     3
+════════════════════════════════════════════════════════════════
+Full log saved to: /Users/wolfpacker/development/gojasper-brief-builder/validation.log
+[ERROR] 2026-09-16 21:31:51 - Validation completed with errors

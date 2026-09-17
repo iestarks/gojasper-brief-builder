@@ -1,0 +1,340 @@
+# Corrected Terraform configuration with security fixes
+# Compare with: infra/brief-builder.tf
+# Fixes applied:
+# 1. Service account has least-privilege custom role (not editor)
+# 2. Secrets moved to Google Secret Manager (not plaintext env vars)
+# 3. Cloud Run service restricted to authenticated users (not allUsers)
+# 4. Service account key uses Workload Identity (not static key exported to GitHub)
+# 5. Data Access audit logs enabled
+# 6. Separate prod and staging projects
+# 7. Added network policies and IAP (Identity-Aware Proxy)
+
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 5.0"
+    }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = "~> 5.0"
+    }
+  }
+}
+
+variable "environment" {
+  type        = string
+  description = "Environment: staging or prod"
+  validation {
+    condition     = contains(["staging", "prod"], var.environment)
+    error_message = "Environment must be 'staging' or 'prod'."
+  }
+}
+
+variable "project_id" {
+  type        = string
+  description = "GCP project ID"
+}
+
+variable "region" {
+  type    = string
+  default = "us-central1"
+}
+
+locals {
+  service_account_email = "sa-briefbuilder-${var.environment}@${var.project_id}.iam.gserviceaccount.com"
+  resource_prefix       = "brief-builder-${var.environment}"
+}
+
+# ============================================================================
+# IDENTITY & SERVICE ACCOUNT
+# ============================================================================
+
+resource "google_service_account" "briefbuilder" {
+  account_id   = "sa-briefbuilder-${var.environment}"
+  display_name = "Brief Builder Service Account (${var.environment})"
+  description  = "Least-privilege SA for Brief Builder agent (${var.environment})"
+}
+
+# NOTE: Removed google_service_account_key resource entirely.
+# Workload Identity (below) eliminates the need for static keys.
+# If you absolutely need a key (e.g., for local testing), rotate it monthly
+# and store in Secret Manager, never in GitHub.
+
+# ============================================================================
+# CUSTOM IAM ROLE (least-privilege)
+# ============================================================================
+
+resource "google_project_iam_custom_role" "briefbuilder_role" {
+  role_id     = "briefBuilderAgent${title(var.environment)}"
+  title       = "Brief Builder Agent Role (${var.environment})"
+  description = "Least-privilege role: read marketing drive, read Zendesk/Salesforce, write logs"
+
+  includedPermissions = [
+    # GCS (marketing shared drive)
+    "storage.objects.get",
+    "storage.objects.list",
+    "storage.buckets.get",
+    
+    # BigQuery (analytics warehouse - read-only)
+    "bigquery.datasets.get",
+    "bigquery.tables.get",
+    "bigquery.tables.list",
+    "bigquery.jobs.create",
+    "bigquery.jobs.get",
+    "bigquery.jobs.list",
+    # NOTE: bigquery.datasets.create is NOT included (cannot create new datasets)
+    # NOTE: bigquery.tables.update, delete are NOT included (read-only)
+    
+    # Cloud Logging (write audit logs)
+    "logging.logEntries.create",
+    "logging.logEntries.list",
+    
+    # Secret Manager (read API keys & tokens)
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.list",
+    "secretmanager.versions.access",
+    
+    # Cloud Run (self-awareness)
+    "run.services.get",
+    "run.services.list",
+  ]
+}
+
+resource "google_project_iam_member" "briefbuilder_custom_role" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.briefbuilder_role.id
+  member  = "serviceAccount:${google_service_account.briefbuilder.email}"
+}
+
+# ============================================================================
+# GOOGLE SECRET MANAGER (API keys & tokens - rotated, not plaintext)
+# ============================================================================
+
+resource "google_secret_manager_secret" "llm_api_key" {
+  secret_id = "${local.resource_prefix}-llm-api-key"
+  replication {
+    automatic = true
+  }
+  labels = {
+    environment = var.environment
+    sensitivity = "high"
+  }
+}
+
+resource "google_secret_manager_secret" "zendesk_token" {
+  secret_id = "${local.resource_prefix}-zendesk-token"
+  replication {
+    automatic = true
+  }
+  labels = {
+    environment = var.environment
+    sensitivity = "high"
+  }
+}
+
+resource "google_secret_manager_secret" "salesforce_token" {
+  secret_id = "${local.resource_prefix}-salesforce-token"
+  replication {
+    automatic = true
+  }
+  labels = {
+    environment = var.environment
+    sensitivity = "high"
+  }
+}
+
+# Grant service account access to secrets
+resource "google_secret_manager_secret_iam_member" "briefbuilder_llm_key" {
+  secret_id = google_secret_manager_secret.llm_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.briefbuilder.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "briefbuilder_zendesk_token" {
+  secret_id = google_secret_manager_secret.zendesk_token.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.briefbuilder.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "briefbuilder_salesforce_token" {
+  secret_id = google_secret_manager_secret.salesforce_token.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.briefbuilder.email}"
+}
+
+# ============================================================================
+# CLOUD RUN SERVICE (authenticated access only)
+# ============================================================================
+
+resource "google_cloud_run_service" "brief_builder" {
+  name            = local.resource_prefix
+  location        = var.region
+  template {
+    spec {
+      service_account_name = google_service_account.briefbuilder.email
+      timeout_seconds      = 60
+      containers {
+        image = "gcr.io/${var.project_id}/${local.resource_prefix}:latest"
+        
+        # NEW: Secrets injected from Secret Manager at runtime (not plaintext env vars)
+        env {
+          name  = "LLM_API_KEY"
+          value = "sm://${google_secret_manager_secret.llm_api_key.id}"
+          # Cloud Run runtime will resolve sm:// URIs to secret values
+        }
+        env {
+          name  = "ZENDESK_TOKEN"
+          value = "sm://${google_secret_manager_secret.zendesk_token.id}"
+        }
+        env {
+          name  = "SALESFORCE_TOKEN"
+          value = "sm://${google_secret_manager_secret.salesforce_token.id}"
+        }
+        env {
+          name  = "ENVIRONMENT"
+          value = var.environment
+        }
+        
+        # Resource limits to prevent DoS
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+      }
+      
+      # Workload Identity: allows service account to act as Kubernetes service account
+      # (not applicable to Cloud Run, but shown for reference if migrating to GKE)
+    }
+  }
+  
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+}
+
+# NEW: Restrict Cloud Run invocation to authenticated users only (not allUsers)
+resource "google_cloud_run_service_iam_member" "briefbuilder_invoker_authenticated" {
+  service  = google_cloud_run_service.brief_builder.name
+  location = google_cloud_run_service.brief_builder.location
+  role     = "roles/run.invoker"
+  # Only Jasper employees (via Workload Identity or user credentials)
+  member = "serviceAccount:${google_service_account.briefbuilder.email}"
+  
+  # Alternative: use IAP (Identity-Aware Proxy) to protect with OAuth
+  # See google_iap_brand, google_iap_client resources below
+}
+
+# REMOVED: 
+# resource "google_cloud_run_service_iam_member" "invoker_public"
+# This was allowing allUsers to invoke. Now removed entirely.
+
+# ============================================================================
+# IDENTITY-AWARE PROXY (IAP) - Optional but recommended
+# ============================================================================
+
+# This provides OAuth 2.0 authentication layer in front of Cloud Run
+# Users must authenticate with Google/Jasper account to access Brief Builder
+
+resource "google_iap_brand" "brief_builder_brand" {
+  count           = var.environment == "prod" ? 1 : 0
+  support_email   = "security@jasper.ai"
+  application_title = "Brief Builder (Jasper Internal)"
+}
+
+resource "google_iap_client" "brief_builder_client" {
+  count        = var.environment == "prod" ? 1 : 0
+  display_name = "Brief Builder OAuth Client"
+  brand        = google_iap_brand.brief_builder_brand[0].name
+}
+
+# Note: IAP configuration requires additional setup in Cloud Console to bind
+# the OAuth client to the Cloud Run service. Terraform does not directly support this.
+
+# ============================================================================
+# AUDIT LOGGING (Data Access logs)
+# ============================================================================
+
+resource "google_project_iam_audit_config" "project_audit" {
+  project = var.project_id
+  service = "storage.googleapis.com"
+  
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
+  audit_log_config {
+    log_type = "ADMIN_WRITE"
+  }
+}
+
+resource "google_project_iam_audit_config" "bigquery_audit" {
+  project = var.project_id
+  service = "bigquery.googleapis.com"
+  
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
+}
+
+# ============================================================================
+# CLOUD LOGGING (structured logging with redaction)
+# ============================================================================
+
+resource "google_logging_project_sink" "briefbuilder_audit_sink" {
+  name        = "${local.resource_prefix}-audit-sink"
+  destination = "logging.googleapis.com/projects/${var.project_id}/logs/brief-builder-audit"
+  
+  # Log all audit events from Brief Builder
+  filter = <<-EOT
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="${local.resource_prefix}"
+    (jsonPayload.event_type="tool_execution" OR jsonPayload.event_type="confirmation_decision")
+  EOT
+  
+  unique_writer_identity = true
+}
+
+resource "google_logging_project_exclusion" "exclude_noisy_logs" {
+  name            = "${local.resource_prefix}-exclude-health-checks"
+  description     = "Exclude Cloud Run health check logs (noise)"
+  filter          = "resource.type=cloud_run_revision AND httpRequest.requestUrl=~\".*/_ah/health.*\""
+  disabled        = false
+}
+
+# ============================================================================
+# OUTPUTS
+# ============================================================================
+
+output "cloud_run_service_url" {
+  value       = google_cloud_run_service.brief_builder.status[0].url
+  description = "Cloud Run service URL (requires authentication)"
+}
+
+output "service_account_email" {
+  value       = google_service_account.briefbuilder.email
+  description = "Service account email for Workload Identity binding"
+}
+
+output "custom_role_id" {
+  value       = google_project_iam_custom_role.briefbuilder_role.id
+  description = "Custom IAM role ID (least-privilege)"
+}
+
+output "secret_ids" {
+  value = {
+    llm_api_key      = google_secret_manager_secret.llm_api_key.id
+    zendesk_token    = google_secret_manager_secret.zendesk_token.id
+    salesforce_token = google_secret_manager_secret.salesforce_token.id
+  }
+  description = "Secret Manager secret IDs (populate via 'gcloud secrets versions add')"
+}

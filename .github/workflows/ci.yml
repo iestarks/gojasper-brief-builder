@@ -1,0 +1,29 @@
+name: brief-builder-ci
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions: write-all
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: some-vendor/llm-eval-action@v1
+      - name: Install and run evals
+        run: |
+          npm install
+          npm run test:eval
+      - name: Deploy to staging
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: ./scripts/deploy.sh
+      - name: Comment eval results
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+          --body "Eval score: $(cat score.txt)"

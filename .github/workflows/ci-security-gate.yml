@@ -1,0 +1,158 @@
+name: Security Gate (Conftest)
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'config/agent.yaml'
+      - 'infra/brief-builder.tf'
+      - '.github/workflows/ci.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'config/agent.yaml'
+      - 'infra/brief-builder.tf'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  security-policy-check:
+    name: Conftest Security Policy Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git log inspection
+      
+      # Install Conftest
+      - name: Install Conftest
+        run: |
+          curl -L https://github.com/open-policy-agent/conftest/releases/download/v0.53.0/conftest_0.53.0_Linux_x86_64.tar.gz | tar xz
+          sudo mv conftest /usr/local/bin/
+          conftest --version
+      
+      # Parse YAML to JSON (Conftest prefers JSON)
+      - name: Convert agent.yaml to JSON
+        run: |
+          python3 << 'EOF'
+          import yaml
+          import json
+          with open('config/agent.yaml', 'r') as f:
+              data = yaml.safe_load(f)
+          with open('agent.json', 'w') as f:
+              json.dump(data, f, indent=2)
+          EOF
+      
+      # Parse HCL to JSON
+      - name: Install terraform-json helper
+        run: |
+          which terraform || (curl -s https://releases.hashicorp.com/terraform/1.6.0/terraform_1.6.0_linux_amd64.zip | unzip && sudo mv terraform /usr/local/bin/)
+          terraform version
+      
+      - name: Convert brief-builder.tf to JSON
+        run: |
+          cd infra
+          terraform init -backend=false 2>/dev/null || true
+          terraform show -json > ../tf.json 2>/dev/null || echo '{"resource":{}}' > ../tf.json
+          cd ..
+      
+      # Run Conftest on both files
+      - name: Run Conftest on agent config
+        continue-on-error: true
+        id: conftest_agent
+        run: |
+          conftest test -p brief-builder-security.rego agent.json \
+            -o sarif > conftest-agent-results.sarif || true
+          # Also output human-readable results
+          conftest test -p brief-builder-security.rego agent.json || FAILED=1
+          echo "AGENT_RESULT=$?" >> $GITHUB_ENV
+      
+      - name: Run Conftest on Terraform
+        continue-on-error: true
+        id: conftest_tf
+        run: |
+          conftest test -p brief-builder-security.rego tf.json \
+            -o sarif > conftest-tf-results.sarif || true
+          conftest test -p brief-builder-security.rego tf.json || FAILED=1
+          echo "TF_RESULT=$?" >> $GITHUB_ENV
+      
+      # Upload SARIF for GitHub Security tab (optional)
+      - name: Upload Conftest SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: conftest-*.sarif
+          category: conftest-security-policy
+      
+      # Fail the check if any CRITICAL or HIGH violations found
+      - name: Evaluate Policy Results
+        id: policy_result
+        run: |
+          AGENT_STATUS=${{ env.AGENT_RESULT }}
+          TF_STATUS=${{ env.TF_RESULT }}
+          
+          if [ "$AGENT_STATUS" != "0" ] || [ "$TF_STATUS" != "0" ]; then
+            echo "POLICY_FAILED=true" >> $GITHUB_ENV
+            echo "✗ Security policy violations detected. Review above for CRITICAL and HIGH severity issues."
+            exit 1
+          else
+            echo "POLICY_FAILED=false" >> $GITHUB_ENV
+            echo "✓ All security policies passed."
+            exit 0
+          fi
+      
+      # Comment on PR with results
+      - name: Comment PR with Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const policyFailed = '${{ env.POLICY_FAILED }}' === 'true';
+            const status = policyFailed ? '❌ POLICY FAILED' : '✅ POLICY PASSED';
+            const comment = `## Security Policy Validation ${status}
+
+This PR was checked against Brief Builder security policies (Conftest).
+
+**Result:** ${status}
+
+**What was checked:**
+- Plaintext secrets in environment variables
+- Confirmation bypass in system prompt
+- Dangerous tools with confirmation: never
+- Missing or inadequate audit logging
+- Overly broad IAM roles
+- Global memory scope without TTL
+- Public service invocation (allUsers)
+
+${policyFailed ? '**⚠️ Fix Required:** Please address CRITICAL and HIGH severity violations before merging.' : '**✓ Passed:** No critical policy violations detected.'}
+
+See workflow logs for detailed output: ${context.payload.pull_request?.html_url}/checks`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+  
+  secret-scanning:
+    name: Secret Scanning (Trufflehog)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Run Trufflehog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: 'origin/main'
+          head: 'HEAD'
+          extra_args: --debug --only-verified

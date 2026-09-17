@@ -1,0 +1,49 @@
+gojasper-brief-builder/
+│
+├── 📄 README.md (project overview)
+│
+├── 📁 .github/
+│   └── workflows/
+│       ├── ci.yml (vulnerable workflow config)
+│       └── ci-security-gate.yml (hardened security gates)
+│
+├── 📁 brief-builder/ (Agent Application)
+│   ├── config/
+│   │   ├── agent.yaml (vulnerable config)
+│   │   └── agent.yaml.secure (hardened config with fixes)
+│   └── docs/
+│       └── model-review.md (technical review notes)
+│
+├── 📁 infra/ (Infrastructure as Code)
+│   ├── brief-builder.tf (vulnerable Terraform)
+│   ├── brief-builder.tf.secure (hardened Terraform)
+│   └── policies/
+│       └── brief-builder-security.rego (OPA/Rego v2 policy rules)
+│
+├── 📁 docs/ (Security & Submission Documents)
+│   ├── SECURITY_ASSESSMENT.md (8-issue threat analysis + roadmap)
+│   ├── SECURITY_DASHBOARD.html (interactive Mermaid dashboard)
+│   ├── SUBMISSION_CHECKLIST.md (exercise requirements)
+│   ├── DELIVERY_SUMMARY.txt (metrics and deliverables)
+│   └── README_SUBMISSION.md (submission guide)
+│
+└── 📁 validation/ (Testing & Validation)
+    ├── validation.sh (7-step security validation script)
+    ├── validation.log (timestamped results)
+    ├── VALIDATION_README.md (quick start guide)
+    ├── VALIDATION_SUMMARY.md (detailed methodology)
+    └── VALIDATION_STATUS.md (completion summary)
+
+KEY ORGANIZATION IMPROVEMENTS:
+✅ Separated vulnerable configs from secure implementations
+✅ Grouped related documentation by purpose (docs/ for strategic, validation/ for QA)
+✅ Organized infrastructure with security policies co-located
+✅ Maintained GitHub Actions configs in .github/ standard location
+✅ Clean root directory with only config/setup files
+
+USAGE:
+- Review security findings: docs/SECURITY_ASSESSMENT.md
+- View dashboard: docs/SECURITY_DASHBOARD.html (open in browser)
+- Run validation: validation/validation.sh
+- Deploy securely: See infra/brief-builder.tf.secure
+- Configure agent: See brief-builder/config/agent.yaml.secure
