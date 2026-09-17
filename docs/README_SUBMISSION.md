@@ -1,7 +1,9 @@
 # Brief Builder Security Assessment - Submission Package
 
 **Submitted for:** Jasper Senior Security Engineer Take-Home Exercise  
-**Candidate:** Monty Gill  
+**Candidate:**  Irving Starks
+
+**Technical Recruiter:** Monty Gill  
 **Due:** Within 3 business days  
 **Status:** Complete
 
