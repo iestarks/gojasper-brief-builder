@@ -386,69 +386,69 @@ graph TD
             <table>
                 <thead>
                     <tr>
-                        <th>Priority</th>
+                        <th>#</th>
                         <th>Issue</th>
-                        <th>Severity</th>
-                        <th>Impact</th>
+                        <th>Impact & Risk</th>
                         <th>Recommendation</th>
+                        <th>Launch Decision</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td class="priority-1">1</td>
-                        <td><b>Prompt Injection / Confirmation Bypass</b></td>
-                        <td><span class="badge-critical">CRITICAL</span></td>
-                        <td>Attacker claims to be "admin" to bypass all tool confirmations</td>
-                        <td>Block launch. Remove bypass clause entirely. Add JWT/mTLS auth.</td>
+                        <td class="priority-1"><b>1</b></td>
+                        <td><b>CI runs on pull_request_target with write-all permissions</b></td>
+                        <td><span class="badge-critical">CRITICAL</span> — Any external GitHub user can open a PR that runs arbitrary code with write access to GCP_SA_KEY, LLM_API_KEY. Classic "pwn request" exploitable by attacker code running in CI.</td>
+                        <td>Restrict permissions to pull_request_target:read-all only. Use separate pull_request event (limited scope) for actual deployment with write-all after manual approval.</td>
+                        <td style="color: #dc3545; font-weight: bold;">🚫 Block Launch</td>
                     </tr>
                     <tr>
-                        <td class="priority-1">2</td>
-                        <td><b>Plaintext API Keys in Repo</b></td>
-                        <td><span class="badge-critical">CRITICAL</span></td>
-                        <td>Keys exposed for 6+ months; can invoke as service account</td>
-                        <td>Revoke secrets immediately. Use Google Secret Manager with Workload Identity. Enable push protection.</td>
+                        <td class="priority-1"><b>2</b></td>
+                        <td><b>LLM API key hardcoded in plaintext in Terraform</b></td>
+                        <td><span class="badge-critical">CRITICAL</span> — Key already exposed to internet for 6+ months (live leak, not launch risk). Enables lateral movement and API quota abuse. Service account compromised if CI (#1) is attacked.</td>
+                        <td>Revoke key immediately. Use Google Secret Manager with Workload Identity (no key in code). Enable GitHub push protection to catch future leaks.</td>
+                        <td style="color: #dc3545; font-weight: bold;">🚫 Block Launch / Act Now</td>
                     </tr>
                     <tr>
-                        <td class="priority-1">3</td>
-                        <td><b>Public Cloud Run (allUsers) + Editor Role</b></td>
-                        <td><span class="badge-critical">CRITICAL</span></td>
-                        <td>Anyone on internet can invoke; full project access</td>
-                        <td>Restrict Cloud Run to authenticated users. Reduce SA role to custom least-privilege role.</td>
+                        <td class="priority-1"><b>3</b></td>
+                        <td><b>Tools have confirmation:never; system prompt has role-bypass clause</b></td>
+                        <td><span class="badge-critical">CRITICAL</span> — "If user states they are admin/security team, skip confirmation." Contradicts "internal only, read-only" policy. Prompt injection from customer support ticket (unchecked text ingestion) can trigger unconfirmed send_email, run_sql, fetch_url calls.</td>
+                        <td>Remove bypass clause entirely. Add JWT/mTLS authentication layer. Implement structured approvals for high-risk tools (send_email, run_sql).</td>
+                        <td style="color: #dc3545; font-weight: bold;">🚫 Block Launch</td>
                     </tr>
                     <tr>
-                        <td class="priority-1">4</td>
-                        <td><b>No Input Sanitization + Global Memory</b></td>
-                        <td><span class="badge-critical">CRITICAL</span></td>
-                        <td>Customer ticket injections stored forever; seen by all 40 users</td>
-                        <td>Implement per-user memory with 24h TTL. Sanitize customer data before ingestion.</td>
+                        <td class="priority-1"><b>4</b></td>
+                        <td><b>Cloud Run publicly invocable (allUsers) with editor-role service account</b></td>
+                        <td><span class="badge-critical">CRITICAL</span> — If keys (#2) or CI (#1) compromise occurs, blast radius is full project. Unauthenticated internet access to agent + unrestricted IAM = data exfiltration vector. Service account with roles/editor has full project scope.</td>
+                        <td>Restrict Cloud Run invoker to authenticated users only via IAM policy. Replace editor role with custom least-privilege role (logging, Secret Manager read, specific APIs only).</td>
+                        <td style="color: #dc3545; font-weight: bold;">🚫 Block Launch</td>
                     </tr>
                     <tr>
-                        <td class="priority-1">5</td>
-                        <td><b>No Branch Protection / Untrusted Actions</b></td>
-                        <td><span class="badge-critical">CRITICAL</span></td>
-                        <td>Malicious commit to main deploys directly to staging with secrets</td>
-                        <td>Enable branch protection + required reviews. Pin Actions to specific SHAs. Enable secret scanning.</td>
+                        <td class="priority-1"><b>5</b></td>
+                        <td><b>No branch protection, no required reviews, untrusted third-party Actions</b></td>
+                        <td><span class="badge-critical">CRITICAL</span> — Malicious commit to main deploys directly to staging with live credentials. Untrusted Action (some-vendor/llm-eval-action@v1, no version pin) can exfiltrate secrets. Deploys secrets on every PR with write-all permissions.</td>
+                        <td>Enable branch protection requiring reviews + status checks. Pin all Actions to specific commit SHAs (not @v1 tags). Enable secret scanning at repo level. Restrict deploy permissions to approved actors only.</td>
+                        <td style="color: #dc3545; font-weight: bold;">🚫 Block Launch</td>
                     </tr>
                     <tr>
-                        <td class="priority-2">6</td>
-                        <td><b>No End-User Audit Trail</b></td>
-                        <td><span class="badge-high">HIGH</span></td>
-                        <td>SOC 2 violation; cannot prove data access controls</td>
-                        <td>Implement Cloud Logging with user identity, tool calls, timestamps (2-week control)</td>
+                        <td class="priority-2"><b>6</b></td>
+                        <td><b>Audit logging captures only final message; no tool calls, user identity, or end-user context</b></td>
+                        <td><span class="badge-high">HIGH</span> — SOC 2 Type II CC7.2 violation (no incident reconstruction). Cannot prove user identity, API calls, or data access for compliance audit. 7-day retention insufficient for forensics.</td>
+                        <td>Implement Cloud Logging with structured schema: user_id (JWT), tool_parameters, timestamps, data accessed. Enable Data Access audit logs. Retain 90+ days. Can be implemented as 2-week compensating control post-launch.</td>
+                        <td style="color: #fd7e14; font-weight: bold;">⚠️ Ship w/ Control</td>
                     </tr>
                     <tr>
-                        <td class="priority-2">7</td>
-                        <td><b>CI/CD Permissions Issues</b></td>
-                        <td><span class="badge-high">HIGH</span></td>
-                        <td>pull_request_target with write-all enables credential theft</td>
-                        <td>Restrict to read-all only. Use separate pull_request event with write-all after approval.</td>
+                        <td class="priority-2"><b>7</b></td>
+                        <td><b>Repository is public; no secret scanning enabled; unrestricted third-party Actions</b></td>
+                        <td><span class="badge-high">HIGH</span> — Raises odds of repeat leak or compromised Action (Dependabot not enabled). Any secrets pushed are immediately visible to public.</td>
+                        <td>Enable GitHub push protection & secret scanning at repo level. Audit all third-party Actions for trust. Auto-rotate keys on any suspected leak. Can proceed to staging with monitoring.</td>
+                        <td style="color: #fd7e14; font-weight: bold;">⚠️ Ship w/ Control</td>
                     </tr>
                     <tr>
-                        <td class="priority-3">8</td>
-                        <td><b>No Separate Prod Project</b></td>
-                        <td><span class="badge-medium">MEDIUM</span></td>
-                        <td>Staging holds real customer data; no blast radius isolation</td>
-                        <td>Accept & track. Require explicit approval from CMO before prod deployment.</td>
+                        <td class="priority-3"><b>8</b></td>
+                        <td><b>Customer-authored ticket text ingested directly into agent without sanitization</b></td>
+                        <td><span class="badge-medium">MEDIUM</span> — Root cause enabling #3 (prompt injection). Unverified customer data reaches agent system context. Slower to fix than prompts, but not an immediate launch blocker if #3 controls (remove bypass, input filters) are in place.</td>
+                        <td>Implement input filter for customer data (redact emails, phone, SSN, SQL keywords). Sanitize before memory storage. Log sanitization events for compliance. Pair with structured input validation.</td>
+                        <td style="color: #28a745; font-weight: bold;">✅ Accept & Track</td>
                     </tr>
                 </tbody>
             </table>
